@@ -59,6 +59,7 @@ mod home;
 mod icon_data;
 pub mod icons;
 mod pageboxes;
+#[cfg(not(feature = "reader-only"))]
 mod palette;
 mod panels;
 #[cfg(not(target_arch = "wasm32"))]
@@ -109,6 +110,43 @@ impl Mode {
             _ => None,
         }
     }
+}
+
+/// RiRead embeds the web app as a focused reader. The same annotation and save
+/// implementation remains available to the full desktop app.
+const READER_ONLY: bool = cfg!(feature = "reader-only");
+
+const fn initial_mode() -> Mode {
+    if READER_ONLY { Mode::Read } else { Mode::AllTools }
+}
+
+/// Commands deliberately retained by the embedded reading shell. Annotation
+/// commands remain available because they are the source of RiRead's saved PDF
+/// changes; editing, conversion and signing commands have no reader entry
+/// point and are rejected even if an old shortcut or control message reaches
+/// this build.
+fn reader_command(id: &str) -> bool {
+    matches!(
+        id,
+        "file.open"
+            | "file.save"
+            | "file.save_as"
+            | "file.close"
+            | "file.close_all"
+            | "file.properties"
+            | "edit.undo"
+            | "edit.redo"
+            | "edit.find"
+            | "comment.list"
+            | "bookmark.add"
+            | "print.dialog"
+            | "view.fit_visible"
+            | "view.full_screen"
+            | "view.theme"
+            | "view.theme.system"
+            | "view.theme.light"
+            | "view.theme.dark"
+    ) || id.starts_with("comment.")
 }
 
 /// What the left panel shows.
@@ -592,11 +630,11 @@ impl PdfCraftApp {
             session: Session::new(),
             views: Vec::new(),
             active: None,
-            mode: Mode::AllTools,
-            default_mode: Mode::AllTools,
+            mode: initial_mode(),
+            default_mode: initial_mode(),
             mode_override: None,
             left: LeftPanel::AllTools,
-            left_open: true,
+            left_open: !READER_ONLY,
             right: None,
             quick_tool: QuickTool::Select,
             comment_prefs: Default::default(),
@@ -807,7 +845,13 @@ impl PdfCraftApp {
         self.views.push(DocView::new(id, &doc.info));
         self.active = Some(self.views.len() - 1);
         self.apply_initial_view(self.views.len() - 1, &initial);
-        if let Some(mode) = self.mode_override {
+        if READER_ONLY {
+            self.mode = Mode::Read;
+            self.default_mode = Mode::Read;
+            self.mode_override = None;
+            self.left = LeftPanel::AllTools;
+            self.left_open = false;
+        } else if let Some(mode) = self.mode_override {
             // Explicit mode options do not reset independent --tool / --left choices.
             self.mode = mode;
         } else if self.mode != self.default_mode {
@@ -1069,6 +1113,12 @@ impl PdfCraftApp {
 
     /// Select the workspace and its matching tool panel, just like the mode bar.
     pub(crate) fn select_mode(&mut self, mode: Mode) {
+        if READER_ONLY {
+            self.mode = Mode::Read;
+            self.left = LeftPanel::AllTools;
+            self.left_open = false;
+            return;
+        }
         self.mode = mode;
         self.left_open = true;
         self.left = match mode {
@@ -1114,7 +1164,7 @@ impl PdfCraftApp {
         if let Ok(preference) = serde_json::from_value::<ThemePreference>(v["theme"].clone()) {
             self.set_theme_preference(preference);
         }
-        if let Ok(mode) = serde_json::from_value::<Mode>(v["default_mode"].clone()) {
+        if !READER_ONLY && let Ok(mode) = serde_json::from_value::<Mode>(v["default_mode"].clone()) {
             self.default_mode = mode;
         }
         if let Some(language) = v["language"].as_str().and_then(i18n::normalize_pref) {
@@ -1193,14 +1243,22 @@ impl PdfCraftApp {
                     other => return Err(format!("unknown panel {other}")),
                 }
             }
+            ("mode", _) if READER_ONLY => {
+                self.mode_override = Some(Mode::Read);
+                self.mode = Mode::Read;
+                self.left = LeftPanel::AllTools;
+                self.left_open = false;
+            }
             ("mode", _) => {
                 let mode = Mode::parse(value).unwrap_or(Mode::AllTools);
                 self.mode_override = Some(mode);
                 self.mode = mode;
             }
+            ("default-mode", _) if READER_ONLY => self.default_mode = Mode::Read,
             ("default-mode", _) => {
                 self.default_mode = Mode::parse(value).ok_or("default-mode must be all, read, edit, convert or sign")?;
             }
+            ("tool", _) if READER_ONLY => return Err("the reader-only build has no tool panels".into()),
             ("tool", _) => {
                 let g = pdfcraft_engine::catalog::group(value).ok_or_else(|| format!("unknown tool {value}"))?;
                 self.left = LeftPanel::Tool(g.id);
@@ -1513,7 +1571,11 @@ impl eframe::App for PdfCraftApp {
         chrome::mode_bar(self, ui);
         if self.active.is_some() {
             chrome::right_rail(self, ui);
-            if self.right.is_some() && self.mode != Mode::Read {
+            // Read mode still uses the viewer-side panels. In particular, RiRead's
+            // reader-only build is permanently in Read mode, so gating this on a
+            // workspace would make every right-rail button look selected without
+            // ever displaying its panel.
+            if self.right.is_some() {
                 panels::right_panel(self, ui);
             }
         }
@@ -1526,6 +1588,7 @@ impl eframe::App for PdfCraftApp {
             Some(i) => canvas::document_area(self, i, ui),
         });
         self.process_pending_edits();
+        #[cfg(not(feature = "reader-only"))]
         palette::show(self, &ctx);
         dialogs::show(self, &ctx);
         widgets::toast(self, &ctx);

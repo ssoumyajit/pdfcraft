@@ -8,6 +8,11 @@ license.workspace = true
 [lints]
 workspace = true
 
+[features]
+# A focused shell for embedding PdfCraft as a personal reader. The underlying
+# viewer, annotation and save code remains shared with the full application.
+reader-only = []
+
 [dependencies]
 pdfcraft-fonts = { workspace = true }
 pdfcraft-engine = { workspace = true }

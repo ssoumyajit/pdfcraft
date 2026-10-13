@@ -1,13 +1,31 @@
-//! Home tab: recommended tools, open card, recent files (local only, never another app's list).
+//! Home tab: the full PdfCraft desktop start page and RiRead's deliberately blank reader canvas.
 
+#[cfg(feature = "reader-only")]
+use egui::Ui;
+#[cfg(not(feature = "reader-only"))]
 use egui::{Align2, CornerRadius, Rect, Sense, Stroke, vec2};
+#[cfg(not(feature = "reader-only"))]
 use pdfcraft_engine::catalog;
 
+#[cfg(feature = "reader-only")]
+use crate::PdfCraftApp;
+#[cfg(not(feature = "reader-only"))]
 use crate::theme::{self, Tokens};
+#[cfg(not(feature = "reader-only"))]
 use crate::{LeftPanel, PdfCraftApp, icons, panels::human_size, widgets};
 
+#[cfg(not(feature = "reader-only"))]
 const RECOMMENDED: [&str; 5] = ["organize", "comment", "form", "edit", "protect"];
 
+/// RiRead owns its own library and welcome experience outside the embedded reader.
+/// Keeping this canvas empty avoids PdfCraft and ArtCraft branding, as well as routes to
+/// workflows that are intentionally absent from the reader-only build.
+#[cfg(feature = "reader-only")]
+pub fn show(_app: &mut PdfCraftApp, ui: &mut Ui) {
+    ui.allocate_space(ui.available_size());
+}
+
+#[cfg(not(feature = "reader-only"))]
 pub fn show(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {

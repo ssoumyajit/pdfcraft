@@ -2,9 +2,11 @@
 
 use egui::{Align, Align2, Color32, CornerRadius, Layout, Rect, Sense, Stroke, vec2};
 
+#[cfg(not(feature = "reader-only"))]
+use crate::Mode;
 use crate::canvas::{Fit, PageLayout};
 use crate::theme::{self, ThemePreference, Tokens};
-use crate::{Dialog, Mode, PdfCraftApp, PropsTab, RightPanel, icons, widgets};
+use crate::{Dialog, PdfCraftApp, PropsTab, RightPanel, icons, widgets};
 
 pub fn tab_strip(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
@@ -54,9 +56,12 @@ pub fn tab_strip(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                     if icons::button(ui, "circle-help", 28.0, false, tl!("Keyboard shortcuts")).clicked() {
                         app.dialog = Some(Dialog::Shortcuts);
                     }
-                    // One click to the community, from anywhere in the app.
-                    if widgets::ghost_button(ui, "messages-square", "Discord").on_hover_text(pdfcraft_engine::links::DISCORD).clicked() {
-                        app.execute("help.discord");
+                    #[cfg(not(feature = "reader-only"))]
+                    {
+                        // One click to the community, from anywhere in the app.
+                        if widgets::ghost_button(ui, "messages-square", "Discord").on_hover_text(pdfcraft_engine::links::DISCORD).clicked() {
+                            app.execute("help.discord");
+                        }
                     }
                 });
             });
@@ -129,11 +134,22 @@ pub fn mode_bar(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                 ui.add_space(6.0);
                 ui.painter().vline(ui.cursor().left(), ui.max_rect().y_range().shrink(12.0), Stroke::new(1.0, t.divider));
                 ui.add_space(10.0);
-                for (mode, label) in
-                    [(Mode::AllTools, "All tools"), (Mode::Read, "Read"), (Mode::Edit, "Edit"), (Mode::Convert, "Convert"), (Mode::Sign, "E-Sign")]
+                #[cfg(feature = "reader-only")]
                 {
-                    if widgets::mode_tab(ui, tl!(label), app.mode == mode).clicked() {
-                        app.select_mode(mode);
+                    let _ = widgets::mode_tab(ui, tl!("Read"), true);
+                }
+                #[cfg(not(feature = "reader-only"))]
+                {
+                    for (mode, label) in [
+                        (Mode::AllTools, "All tools"),
+                        (Mode::Read, "Read"),
+                        (Mode::Edit, "Edit"),
+                        (Mode::Convert, "Convert"),
+                        (Mode::Sign, "E-Sign"),
+                    ] {
+                        if widgets::mode_tab(ui, tl!(label), app.mode == mode).clicked() {
+                            app.select_mode(mode);
+                        }
                     }
                 }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -150,9 +166,12 @@ pub fn mode_bar(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                             app.dialog = Some(Dialog::Properties(PropsTab::Description));
                         }
                     });
-                    ui.add_space(8.0);
-                    if widgets::search_box(ui, tl!("Find tools and commands"), 260.0).clicked() {
-                        app.palette_open = true;
+                    #[cfg(not(feature = "reader-only"))]
+                    {
+                        ui.add_space(8.0);
+                        if widgets::search_box(ui, tl!("Find tools and commands"), 260.0).clicked() {
+                            app.palette_open = true;
+                        }
                     }
                 });
             });
@@ -160,6 +179,14 @@ pub fn mode_bar(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
 }
 
 fn main_menu(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
+    #[cfg(feature = "reader-only")]
+    reader_menu(app, ui);
+    #[cfg(not(feature = "reader-only"))]
+    full_menu(app, ui);
+}
+
+#[cfg(not(feature = "reader-only"))]
+fn full_menu(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     let resp = widgets::ghost_button(ui, "panel-left", tl!("Menu"));
     egui::Popup::menu(&resp).show(|ui| {
@@ -250,19 +277,107 @@ fn main_menu(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
     });
 }
 
+#[cfg(feature = "reader-only")]
+fn reader_menu(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
+    let t = Tokens::get(ui.ctx());
+    let resp = widgets::ghost_button(ui, "panel-left", tl!("Menu"));
+    egui::Popup::menu(&resp).show(|ui| {
+        ui.set_min_width(230.0);
+        ui.menu_button(tl!("File"), |ui| {
+            crate::commands::command_menu(app, ui, &["file.open", "file.save", "file.save_as", "file.close", "file.properties"]);
+        });
+        ui.menu_button(tl!("View"), |ui| {
+            if let Some(i) = app.active {
+                let v = &mut app.views[i];
+                ui.label(egui::RichText::new(tl!("Zoom")).color(t.text_faint).small());
+                if widgets::menu_item(ui, tl!("Actual size"), "⌘1").clicked() {
+                    v.set_zoom(1.0);
+                }
+                if widgets::menu_item(ui, tl!("Zoom to page level"), "⌘0").clicked() {
+                    v.fit = Fit::Page;
+                }
+                if widgets::menu_item(ui, tl!("Fit to width"), "⌘2").clicked() {
+                    v.fit = Fit::Width;
+                }
+                if widgets::menu_item(ui, tl!("Fit to height"), "").clicked() {
+                    v.fit = Fit::Height;
+                    v.goto = Some((v.current, 0.0));
+                }
+                if widgets::menu_item(ui, tl!("Fit visible"), "⌘3").clicked() {
+                    ui.close();
+                    app.execute("view.fit_visible");
+                    return;
+                }
+                if widgets::menu_item(ui, tl!("Zoom in"), "⌘+").clicked() {
+                    v.zoom_step(true);
+                }
+                if widgets::menu_item(ui, tl!("Zoom out"), "⌘−").clicked() {
+                    v.zoom_step(false);
+                }
+                if widgets::menu_item(ui, tl!("Rotate view clockwise"), "⇧⌘+").clicked() {
+                    v.rotate_view(true);
+                }
+                if widgets::menu_item(ui, tl!("Rotate view counterclockwise"), "⇧⌘−").clicked() {
+                    v.rotate_view(false);
+                }
+                ui.separator();
+                ui.label(egui::RichText::new(tl!("Page navigation")).color(t.text_faint).small());
+                if ui.add_enabled(!v.back.is_empty(), egui::Button::new(tl!("Previous view")).shortcut_text("⌘[")).clicked() {
+                    v.view_history(false);
+                }
+                if ui.add_enabled(!v.forward.is_empty(), egui::Button::new(tl!("Next view")).shortcut_text("⌘]")).clicked() {
+                    v.view_history(true);
+                }
+                ui.separator();
+                ui.label(egui::RichText::new(tl!("Page display")).color(t.text_faint).small());
+                for (layout, label) in
+                    [(PageLayout::Continuous, "Continuous scrolling"), (PageLayout::TwoUp, "Two-page view"), (PageLayout::Single, "Single page")]
+                {
+                    if ui.radio(v.layout == layout, tl!(label)).clicked() {
+                        v.layout = layout;
+                        v.goto = Some((v.current, 0.0));
+                    }
+                }
+                if ui.add_enabled(v.layout == PageLayout::TwoUp, egui::Checkbox::new(&mut v.cover, tl!("Show cover page in two-page view"))).changed()
+                {
+                    v.goto = Some((v.current, 0.0));
+                }
+                ui.separator();
+            }
+            crate::commands::command_menu(app, ui, &["edit.find", "view.full_screen"]);
+            ui.menu_button(tl!("Display theme"), |ui| theme_menu(app, ui));
+            ui.menu_button(tl!("Side panels"), |ui| {
+                for (panel, label) in [
+                    (RightPanel::Comments, tl!("Comments")),
+                    (RightPanel::Bookmarks, tl!("Bookmarks")),
+                    (RightPanel::Pages, tl!("Pages")),
+                    (RightPanel::Layers, tl!("Layers")),
+                    (RightPanel::Attachments, tl!("Attachments")),
+                ] {
+                    if ui.radio(app.right == Some(panel), label).clicked() {
+                        app.right = Some(panel);
+                    }
+                }
+            });
+        });
+        ui.menu_button(tl!("Comments"), |ui| {
+            crate::commands::command_menu(app, ui, &["edit.undo", "edit.redo", "comment.list"]);
+        });
+    });
+}
+
 pub fn right_rail(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     let Some((index, id)) = app.active_ids() else { return };
     let Some(doc) = app.session.get(id) else { return };
+    #[cfg(not(feature = "reader-only"))]
     let has_signatures = doc.is_signed();
+    #[cfg(not(feature = "reader-only"))]
     let has_check = app.a11y.report.as_ref().is_some_and(|(d, _)| *d == id);
-    let (has_comments, has_outline, has_fields, has_layers, has_files) = (
-        !doc.info.annotations.is_empty(),
-        !doc.info.outline.is_empty(),
-        !doc.info.fields.is_empty(),
-        !doc.info.layers.is_empty(),
-        !doc.info.attachments.is_empty(),
-    );
+    let (has_comments, has_outline, has_layers, has_files) =
+        (!doc.info.annotations.is_empty(), !doc.info.outline.is_empty(), !doc.info.layers.is_empty(), !doc.info.attachments.is_empty());
+    #[cfg(not(feature = "reader-only"))]
+    let has_fields = !doc.info.fields.is_empty();
     let page_count = doc.info.pages.len();
     let labels: Vec<String> = doc.info.pages.iter().map(|p| p.label.clone()).collect();
     egui::Panel::right("rail")
@@ -285,10 +400,13 @@ pub fn right_rail(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
             rail_button(ui, RightPanel::Comments, "message-square-text", "Comments", has_comments);
             rail_button(ui, RightPanel::Bookmarks, "bookmark", "Bookmarks", has_outline);
             rail_button(ui, RightPanel::Pages, "files", "Page thumbnails", false);
+            #[cfg(not(feature = "reader-only"))]
             rail_button(ui, RightPanel::Fields, "text-cursor-input", "Form fields", has_fields);
             rail_button(ui, RightPanel::Layers, "layers", "Layers", has_layers);
             rail_button(ui, RightPanel::Attachments, "paperclip", "Attachments", has_files);
+            #[cfg(not(feature = "reader-only"))]
             rail_button(ui, RightPanel::Signatures, "signature", "Signatures", has_signatures);
+            #[cfg(not(feature = "reader-only"))]
             if has_check {
                 rail_button(ui, RightPanel::Accessibility, "accessibility", "Accessibility Checker", false);
             }

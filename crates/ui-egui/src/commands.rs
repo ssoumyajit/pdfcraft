@@ -7,10 +7,11 @@
 use pdfcraft_engine::Edit;
 use pdfcraft_engine::commands::{self, COMMANDS, CommandSpec};
 
+#[cfg(not(feature = "reader-only"))]
+use crate::widgets;
 use crate::{
     Dialog, Mode, PdfCraftApp, PropsTab, RightPanel, SaveTarget,
     theme::{ThemeKind, ThemePreference},
-    widgets,
 };
 
 impl PdfCraftApp {
@@ -34,6 +35,10 @@ impl PdfCraftApp {
     }
 
     fn execute_unguarded(&mut self, id: &str) -> bool {
+        if crate::READER_ONLY && !crate::reader_command(id) {
+            self.notify_tr("This action is not part of the reader-only build");
+            return false;
+        }
         let Some(spec) = commands::command(id) else { return false };
         if !self.command_enabled(spec) {
             let why = match spec.needs {
@@ -506,6 +511,7 @@ impl PdfCraftApp {
 }
 
 /// Render a top-level menu's registered commands (with live labels, shortcuts and enablement).
+#[cfg(not(feature = "reader-only"))]
 pub(crate) fn registry_menu(app: &mut PdfCraftApp, ui: &mut egui::Ui, menu: &str) {
     let mac = cfg!(target_os = "macos") || cfg!(target_arch = "wasm32");
     for spec in commands::menu(menu) {
@@ -520,4 +526,24 @@ pub(crate) fn registry_menu(app: &mut PdfCraftApp, ui: &mut egui::Ui, menu: &str
         }
     }
     let _ = widgets::menu_item;
+}
+
+/// Render a deliberately chosen subset of registered commands. The reader-only
+/// shell uses this rather than a whole menu category, whose catalogue also
+/// contains authoring and conversion actions.
+#[cfg(feature = "reader-only")]
+pub(crate) fn command_menu(app: &mut PdfCraftApp, ui: &mut egui::Ui, ids: &[&str]) {
+    let mac = cfg!(target_os = "macos") || cfg!(target_arch = "wasm32");
+    for id in ids {
+        let Some(spec) = commands::command(id) else { continue };
+        let label = commands::current_label(spec, &app.session, app.active_ids().map(|(_, id)| id));
+        let label = crate::i18n::menu_label(spec.id, &label);
+        let shortcut = spec.shortcut.map(|s| s.label(mac)).unwrap_or_default();
+        let enabled = app.command_enabled(spec);
+        let resp = ui.add_enabled(enabled, egui::Button::new(label).shortcut_text(shortcut));
+        if resp.clicked() {
+            app.execute(spec.id);
+            ui.close();
+        }
+    }
 }

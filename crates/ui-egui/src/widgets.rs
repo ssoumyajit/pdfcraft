@@ -56,6 +56,7 @@ pub fn ghost_button(ui: &mut egui::Ui, icon: &str, label: &str) -> Response {
 }
 
 /// A search-field lookalike that opens the command palette.
+#[cfg(not(feature = "reader-only"))]
 pub fn search_box(ui: &mut egui::Ui, placeholder: &str, width: f32) -> Response {
     let t = Tokens::get(ui.ctx());
     let (rect, resp) = ui.allocate_exact_size(vec2(width, 32.0), Sense::click());

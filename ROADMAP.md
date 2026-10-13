@@ -92,7 +92,7 @@ Hours are for a single agent (low–high). "Done" is the estimated fraction of t
 | M0 | Skeleton: workspace, xtask gates, CI | 15–30 | 92% | 2–4 | GitHub workflow and `deny.toml` (licence audit of every dependency) done. Missing: remaining crate stubs, testkit/oracle crates |
 | M1 | COS: filters, crypt, parser, xref, writer | 120–200 | 78% | 25–45 | Done:<br>- filters and crypt: every standard-security revision R2–R6 (RC4, AES-128/256), SASLprep, permissions, creating encryption;<br>- cos: parse and repair (including invalid xref object-number ranges), decrypt on load, re-encrypt on save, incremental and full writing.<br>Corpus: open/edit/save passes on 958 files, and all 7 password-protected files open.<br>Full saves now pack objects into compressed object streams. Missing: ≥ 250 tests, own image codecs |
 | M2 | Model, render, text | 200–350 | 15% | 170–300 | hayro bootstrap renderer (vendored patches). Text extraction reaches word-F1 0.98 against pdftotext. Missing: model crate, fonts, DisplayList, renderer independent of hayro |
-| M3 | Viewer app (native + web) | 80–150 | 88% | 10–19 | Acrobat-style shell, find, select, panels, tiles, web build, UI control channel for agents (opt-in). Missing: 60 fps test on a 500-page document, snapshot tests of every panel Done since: fit visible, document title in the window; Linux middle-button scrolling; shared three-state theme preferences in the toolbar, View menu and control channel. |
+| M3 | Viewer app (native + web) | 80–150 | 88% | 10–19 | Acrobat-style shell, find, select, panels, tiles, web build, UI control channel for agents (opt-in). Missing: 60 fps test on a 500-page document, snapshot tests of every panel. Done since: fit visible, document title in the window; Linux middle-button scrolling; shared three-state theme preferences in the toolbar, View menu and control channel. RiRead's web target additionally compiles a reader-only shell that retains navigation, annotation and Save while hiding authoring, conversion and signing workflows. |
 | M4 | Engine, history, save, organize | 100–180 | 95% | 9–17 | Done:<br>- command registry (menus, shortcuts and palette all use it);<br>- undo/redo; incremental, atomic and encrypted saves;<br>- autosave and crash recovery;<br>- organize, combine, extract, split and insert-from-file, with identical fonts and images stored once;<br>- CLI `edit/combine/extract/split`.<br>Done since: bookmark editing, page labels (Number pages), CLI `run`, Set Page Boxes, Crop tool, Duplicate pages, Ctrl+A / Cmd+A to select all pages in Organize. Missing: Replace pages, page transitions, recovery on the web |
 | M5 | Comments (all annotation types, XFDF) | 120–200 | 88% | 15–25 | Done: notes, highlight/underline/strikeout/squiggly, text boxes, ink, lines, arrows, rectangles, ovals, stamps (dynamic, Sign Here, Standard Business), with appearance streams; replies, status, checkmarks, locking, move/resize/restyle/delete; properties dialog; panel filter and sort; hide all; summaries (comments only); XFDF/FDF import and export; flatten; Fill & Sign; agent tools. Done since: polygons, connected lines, clouds, callouts, inserted text, colour and checkmark filters. Missing: custom stamps, replace-text proposals, summary layouts with the page |
 | M6 | Forms + JavaScript | 160–320 | 45% | 95–185 | Done: filling all field types with regenerated appearances; Prepare a form (every field type, move/resize/delete, Field Properties General/Appearance/Position/Options/Format/Validate/Calculate); Acrobat's AF format/keystroke/validate/calculate functions and simplified field notation run natively in Acrobat's event order; tab order; push-button actions; flatten; agent tools. Form data exchange (FDF, XFDF, XML, CSV, text) done. Done since: JavaScript engine (boa, sandboxed) running custom keystroke/validate/calculate/format and button scripts, document JavaScripts, console. Missing: Actions tab, wider object model (annotations, layers, dialogs), XFA |
@@ -126,6 +126,23 @@ M0 → M1 → M2 → M3 → M4 must happen in order. After M4, M5–M12 can run 
 ## Log
 
 Newest first. One line per session: the date, what moved, and the new overall percentage.
+
+- **2026-10-13 (RiRead reader-only):** The embedded reader's no-document home canvas is now
+  deliberately blank, removing PdfCraft and ArtCraft branding, community links, recommended tools,
+  and upstream recent-file UI. The desktop PdfCraft home remains unchanged; a focused UI regression
+  covers the reader-only canvas. Feature progress is unchanged (about 30–35%).
+
+- **2026-10-13 (RiRead reader-only):** Fixed the reader-side rail regression: selecting
+  Comments, Bookmarks, Pages, Layers, or Attachments now renders its panel while the embedded web
+  shell remains in Read mode. Added a focused reader-only UI regression test; feature progress is
+  unchanged (about 30–35%).
+
+- **2026-10-13 (RiRead reader-only shell):** The embedded web target now enables a
+  `reader-only` UI feature: Read mode, comments (including text boxes), markup, drawing,
+  undo/redo and the acknowledged RiRead Save bridge remain; All tools, Edit, Convert, E-Sign,
+  command search, Fill & Sign and non-reader rail entry points are removed from that target.
+  The full desktop shell and shared engine code remain intact. Reader-mode regression plus the
+  existing save-acknowledgement regressions pass; feature progress is unchanged (about 30–35%).
 
 - **2026-10-13 (RiRead storage compatibility):** A user-reported save timeout showed the parent
   storage acknowledgement could stall when it mixed a record read and replacement write in one
