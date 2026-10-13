@@ -125,10 +125,6 @@
             Target="[#PdfcraftExe]" WorkingDirectory="INSTALLFOLDER" Icon="PdfcraftIcon.ico" IconIndex="0" />
         <RegistryValue Root="HKLM" Key="Software\PdfCraft\Shortcuts" Name="Desktop" Type="integer" Value="1" KeyPath="yes" />
       </Component>
-
-      <Component Id="PdfcraftCli">
-        <File Id="PdfcraftCliExe" Source="$(var.BinDir)\pdfcraft-cli.exe" KeyPath="yes" />
-      </Component>
     </ComponentGroup>
   </Fragment>
 </Wix>

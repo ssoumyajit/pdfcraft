@@ -6,7 +6,7 @@ use egui::{Key, Modifiers};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use pdfcraft_render::{PageRenderer, RenderRequest, RequestKind};
-use pdfcraft_ui_egui::{CloseRequest, PdfCraftApp};
+use pdfcraft_ui_egui::{CloseRequest, ExternalSaveRequest, ExternalSaveResult, PdfCraftApp, SaveTarget};
 
 /// An `n`-page document with a proper xref table; page `i` shows "Page i+1".
 fn fixture(n: usize) -> Vec<u8> {
@@ -43,6 +43,23 @@ fn harness(pages: usize, setup: impl FnOnce(&mut PdfCraftApp) + 'static) -> Harn
     });
     h.run_steps(4);
     h
+}
+
+fn stored_harness() -> (Harness<'static, PdfCraftApp>, std::sync::Arc<std::sync::Mutex<Vec<ExternalSaveRequest>>>) {
+    let sent = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let sent_for_app = sent.clone();
+    let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(move |_cc| {
+        let mut app = PdfCraftApp::new();
+        app.open_stored_bytes("paper.pdf", fixture(1), "library-document-1".into()).expect("fixture opens");
+        app.set_external_save_sender(Box::new(move |request| {
+            sent_for_app.lock().map_err(|_| "test save queue is unavailable".to_string())?.push(request);
+            Ok(())
+        }));
+        app.apply_edit(pdfcraft_engine::Edit::RotatePages { pages: vec![0], degrees: 90 });
+        app
+    });
+    h.run_steps(4);
+    (h, sent)
 }
 
 fn organize(pages: usize) -> Harness<'static, PdfCraftApp> {
@@ -362,6 +379,54 @@ fn clean_tabs_close_without_asking() {
     h.run_steps(3);
     assert!(h.state().views.is_empty());
     assert!(h.query_by_label("Don't save").is_none());
+}
+
+#[test]
+fn library_save_stays_dirty_until_storage_acknowledges_it() {
+    let (mut h, sent) = stored_harness();
+    assert!(dirty(&h));
+    assert!(!h.state_mut().save_active(SaveTarget::InPlace), "the asynchronous write is not complete yet");
+    assert!(dirty(&h));
+
+    let request = sent.lock().unwrap().first().cloned().expect("save request");
+    assert_eq!(request.document_id, "library-document-1");
+    assert_eq!(request.name, "paper.pdf");
+    assert!(request.bytes.starts_with(b"%PDF-"));
+
+    h.state().external_save_results().lock().unwrap().push(ExternalSaveResult { request_id: request.request_id, ok: true, error: None });
+    h.run_steps(2);
+    assert!(!dirty(&h), "the successful transaction acknowledgement marks the snapshot saved");
+}
+
+#[test]
+fn failed_library_save_keeps_edits_dirty_and_can_be_retried() {
+    let (mut h, sent) = stored_harness();
+    assert!(!h.state_mut().save_active(SaveTarget::InPlace));
+    let request = sent.lock().unwrap().first().cloned().expect("save request");
+    h.state().external_save_results().lock().unwrap().push(ExternalSaveResult {
+        request_id: request.request_id,
+        ok: false,
+        error: Some("storage quota exceeded".into()),
+    });
+    h.run_steps(2);
+    assert!(dirty(&h));
+    assert!(h.state().toast.as_ref().is_some_and(|(message, _)| message.contains("storage quota exceeded")));
+
+    assert!(!h.state_mut().save_active(SaveTarget::InPlace), "the failed request no longer blocks another save");
+    assert_eq!(sent.lock().unwrap().len(), 2);
+}
+
+#[test]
+fn edits_made_during_library_save_remain_dirty_after_acknowledgement() {
+    let (mut h, sent) = stored_harness();
+    assert!(!h.state_mut().save_active(SaveTarget::InPlace));
+    let request = sent.lock().unwrap().first().cloned().expect("save request");
+    assert!(h.state_mut().apply_edit(pdfcraft_engine::Edit::RotatePages { pages: vec![0], degrees: 90 }));
+
+    h.state().external_save_results().lock().unwrap().push(ExternalSaveResult { request_id: request.request_id, ok: true, error: None });
+    h.run_steps(2);
+    assert!(dirty(&h), "the acknowledgement only covers the older snapshot");
+    assert!(h.state().toast.as_ref().is_some_and(|(message, _)| message.contains("newer edits are still unsaved")));
 }
 
 #[test]

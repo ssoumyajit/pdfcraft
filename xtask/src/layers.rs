@@ -79,13 +79,11 @@ pub const TABLE: &[(&str, Class)] = &[
     ("platform", Class::Layer(7)),
     ("ui-common", Class::Layer(7)),
     ("ui-egui", Class::Layer(7)),
-    ("automation", Class::Layer(7)),
     // test support
     ("testkit", Class::Testkit),
     ("oracle", Class::Testkit),
     // L8 apps + tooling
     ("pdfcraft", Class::Exempt),
-    ("cli", Class::Exempt),
     ("web", Class::Exempt),
     ("xtask", Class::Exempt),
 ];
@@ -102,7 +100,6 @@ pub const SIDEWAYS: &[(&str, &str)] = &[
     ("sign", "security"),
     ("ui-egui", "ui-common"),
     ("ui-egui", "platform"),
-    ("automation", "platform"),
 ];
 
 /// External crates that constitute a UI toolkit / windowing dependency (prefix match with `*`).
@@ -330,7 +327,7 @@ mod tests {
 
     #[test]
     fn apps_exempt() {
-        for app in ["pdfcraft", "pdfcraft-cli", "pdfcraft-web", "xtask"] {
+        for app in ["pdfcraft", "pdfcraft-web", "xtask"] {
             assert!(check(&[c(app, &[("egui", Normal, false), ("pdfcraft-ui-egui", Normal, true)])]).is_empty());
         }
     }

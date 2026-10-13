@@ -40,7 +40,7 @@ with `cargo xtask version set` before building, so the binaries report it too. T
 
 | Platform | Artifacts | Built on |
 |---|---|---|
-| macOS 11+ (universal: Apple silicon + Intel) | `pdfcraft-<v>-macos-universal.dmg`, `pdfcraft-cli-<v>-macos-universal.zip` | `macos-15` |
+| macOS 11+ (universal: Apple silicon + Intel) | `pdfcraft-<v>-macos-universal.dmg` | `macos-15` |
 | Windows 10+ x64 | `pdfcraft-<v>-windows-x64.msi`, `pdfcraft-<v>-windows-x64-portable.zip` | `windows-latest` |
 | Windows 10+ x86 (32-bit) | `pdfcraft-<v>-windows-x86.msi`, `pdfcraft-<v>-windows-x86-portable.zip` | `windows-latest` |
 | Windows 11 on ARM64 | `pdfcraft-<v>-windows-arm64.msi`, `pdfcraft-<v>-windows-arm64-portable.zip` | `windows-latest` (cross-compiled) |
@@ -52,7 +52,7 @@ with `cargo xtask version set` before building, so the binaries report it too. T
 The ARM64 Windows build is cross-compiled on the x64 runner, so signing and WiX work as for the
 other Windows builds; `.github/workflows/windows-arm64.yml` installs and runs it on ARM64 hardware.
 
-Every binary reports its version (`pdfcraft --version`, `pdfcraft-cli --version`, *Help ▸ About*).
+The app reports its version through `pdfcraft --version` and *Help ▸ About*.
 The workflow sets `PDFCRAFT_BUILD_SHA` and `PDFCRAFT_BUILD_DATE` (`packaging/env.sh` fills them in
 for local builds): the commit is recorded in the macOS `Info.plist` (`PdfCraftBuildCommit`) and the
 date in the AppStream metadata. The binaries don't embed the commit yet.
@@ -76,9 +76,6 @@ from Preview). Files opened from Finder arrive as Apple events, which
 - **Notarization:** the app is zipped and sent with `xcrun notarytool submit --wait`, the ticket is
   stapled, and the result is checked with `codesign --verify`, `stapler validate` and `spctl`. The
   app ships on a drag-to-Applications DMG, which is signed and notarized too.
-- **CLI:** `pdfcraft-cli` is signed and notarized as a zip. A bare executable can't hold a stapled
-  ticket, so Gatekeeper looks it up online the first time a downloaded copy runs.
-
 Without certificates (locally) the script signs ad-hoc and skips notarization:
 
 ```sh
@@ -90,9 +87,8 @@ packaging/macos/package.sh --arch aarch64     # quicker, host-only; --arch unive
 `packaging/windows/package.ps1 -Arch x64|x86|arm64` builds with `-C target-feature=+crt-static`, so
 neither the MSI nor the portable zip needs the Visual C++ redistributable.
 
-- Before packaging, it reads both executables' PE headers: the machine type must match `-Arch`, and
-  `pdfcraft.exe` must be a GUI-subsystem program (no console window, #57) while `pdfcraft-cli.exe`
-  stays a console program.
+- Before packaging, it reads the executable's PE header: the machine type must match `-Arch`, and
+  `pdfcraft.exe` must be a GUI-subsystem program so no console window opens with it (#57).
 - `pdfcraft.wxs` (WiX v5) installs per machine into Program Files with a Start Menu shortcut, a
   desktop shortcut (on by default) and an App Paths entry. Both shortcuts are plain links to
   `pdfcraft.exe`, not advertised MSI shortcuts (#107, #143). The MSI version is the numeric `X.Y.Z`

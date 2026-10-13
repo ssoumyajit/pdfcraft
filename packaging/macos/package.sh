@@ -2,7 +2,6 @@
 # Build, sign and (optionally) notarize the macOS release artifacts:
 #
 #   $DIST/pdfcraft-<version>-macos-<arch>.dmg          PdfCraft.app on a drag-to-Applications DMG
-#   $DIST/pdfcraft-cli-<version>-macos-<arch>.zip      the headless CLI
 #
 # Usage: packaging/macos/package.sh [--arch universal|aarch64|x86_64] [--skip-build]
 #
@@ -41,7 +40,6 @@ SHORT_VERSION="${VERSION%%-*}"
 WORK="$CARGO_TARGET_DIR/macos-package"
 APP="$WORK/PdfCraft.app"
 DMG="$DIST/pdfcraft-$VERSION-macos-$ARCH.dmg"
-CLI_ZIP="$DIST/pdfcraft-cli-$VERSION-macos-$ARCH.zip"
 
 NOTARIZE=0
 if [ "$IDENTITY" = "-" ]; then
@@ -58,12 +56,12 @@ echo "==> PdfCraft $VERSION for macOS ($ARCH), identity: $IDENTITY, notarize: $N
 if [ "$SKIP_BUILD" = 0 ]; then
   args=()
   for t in "${TARGETS[@]}"; do args+=(--target "$t"); done
-  (cd "$ROOT" && cargo build --release --locked -p pdfcraft -p pdfcraft-cli "${args[@]}")
+  (cd "$ROOT" && cargo build --release --locked -p pdfcraft "${args[@]}")
 fi
 
 rm -rf "$WORK"
 mkdir -p "$WORK/bin"
-for bin in pdfcraft pdfcraft-cli; do
+for bin in pdfcraft; do
   inputs=()
   for t in "${TARGETS[@]}"; do inputs+=("$CARGO_TARGET_DIR/$t/release/$bin"); done
   lipo -create -output "$WORK/bin/$bin" "${inputs[@]}"
@@ -145,19 +143,6 @@ if [ "$NOTARIZE" = 1 ]; then
   spctl --assess --type open --context context:primary-signature -vvv "$DMG"
 fi
 
-# ---- CLI ---------------------------------------------------------------------------------------
-echo "==> building $CLI_ZIP"
-CLI_DIR="$WORK/pdfcraft-cli-$VERSION-macos-$ARCH"
-mkdir -p "$CLI_DIR"
-cp "$WORK/bin/pdfcraft-cli" "$CLI_DIR/"
-copy_docs "$CLI_DIR"
-sign --options runtime "$CLI_DIR/pdfcraft-cli"
-codesign --verify --strict --verbose=2 "$CLI_DIR/pdfcraft-cli"
-rm -f "$CLI_ZIP"
-ditto -c -k --keepParent "$CLI_DIR" "$CLI_ZIP"
-# A bare Mach-O can't carry a stapled ticket; Gatekeeper looks the notarization up online.
-if [ "$NOTARIZE" = 1 ]; then notarize "$CLI_ZIP"; fi
-
-"$WORK/bin/pdfcraft-cli" --version
+"$WORK/bin/pdfcraft" --version
 echo "==> done"
-ls -lh "$DMG" "$CLI_ZIP"
+ls -lh "$DMG"

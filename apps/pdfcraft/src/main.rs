@@ -8,9 +8,8 @@
 //!  --theme light|dark|system  --language auto|<code>  --mode all|read|edit|convert|sign  --tool <catalogue id>  --left open|closed
 //!  --organize on  --fields on  --dialog properties|shortcuts|about  --palette <query>  --home on`
 //!
-//! `--control <file>` enables the UI control channel (off by default): the app listens on a random
-//! loopback port and writes `{"port", "token", "pid"}` to `<file>` (owner-only permissions).
-//! Agents then drive it with `pdfcraft-cli ui --control <file> <method> …`.
+//! `--control <file>` enables the internal UI test channel (off by default): the app listens on a
+//! random loopback port and writes `{"port", "token", "pid"}` to `<file>` (owner-only permissions).
 
 // Release builds on Windows are GUI-subsystem programs, so launching the app doesn't open a console
 // window next to it (#57). `--version` and diagnostics then go nowhere when started from a terminal

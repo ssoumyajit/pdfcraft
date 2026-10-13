@@ -19,7 +19,6 @@ license: MIT OR Apache-2.0
 description: |-
   Open-source, native PDF workbench: read, comment, fill and sign forms,
   organize, combine, split, edit, redact, protect and export PDFs.
-  Includes pdfcraft-cli, a headless command runner and opt-in MCP server.
 
 # The binaries link only glibc and libgcc_s directly. Windowing (X11/Wayland, xkbcommon) and the
 # GPU (Vulkan, EGL/GL) are loaded at runtime, so they are dependencies/recommendations here
@@ -56,9 +55,6 @@ overrides:
 contents:
   - src: ${STAGE}/usr/bin/pdfcraft
     dst: /usr/bin/pdfcraft
-    file_info: { mode: 0755 }
-  - src: ${STAGE}/usr/bin/pdfcraft-cli
-    dst: /usr/bin/pdfcraft-cli
     file_info: { mode: 0755 }
   - src: ${STAGE}/usr/share/
     dst: /usr/share/

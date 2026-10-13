@@ -12,7 +12,7 @@ Detailed task lists and acceptance tests are in `plan/execution-plan.md` (local-
 
 The unit is **wall-clock hours of agent work** (Claude Opus 5.5 coding continuously; human review time not included).
 
-**Where we are (2026-10-07, measured by `cargo xtask parity` over 806 tracked Acrobat Pro features; 23 more are Adobe-cloud-only and out of scope):**
+**Where the upstream project was on 2026-10-07 (before this reader-focused fork):**
 
 | Tier | Features | Shipped | Partial | Shipped % | Weighted % (partial = ½) |
 |---|---|---|---|---|---|
@@ -89,8 +89,8 @@ Hours are for a single agent (low–high). "Done" is the estimated fraction of t
 
 | M | Milestone | Est. hours | Done | Remaining (h) | Notes |
 |---|---|---|---|---|---|
-| M0 | Skeleton: workspace, xtask gates, CI | 15–30 | 92% | 2–4 | GitHub workflow, `deny.toml` (licence audit of every dependency), parity checklist (826 features, `xtask parity`) done. Missing: remaining crate stubs, testkit/oracle crates |
-| M1 | COS: filters, crypt, parser, xref, writer | 120–200 | 78% | 25–45 | Done:<br>- filters and crypt: every standard-security revision R2–R6 (RC4, AES-128/256), SASLprep, permissions, creating encryption;<br>- cos: parse and repair (including invalid xref object-number ranges), decrypt on load, re-encrypt on save, incremental and full writing.<br>Corpus: open/edit/save passes on 958 files, and all 7 password-protected files open.<br>Full saves now pack objects into compressed object streams. Fuzzing runs nightly (`xtask fuzz`). Missing: ≥ 250 tests, own image codecs |
+| M0 | Skeleton: workspace, xtask gates, CI | 15–30 | 92% | 2–4 | GitHub workflow and `deny.toml` (licence audit of every dependency) done. Missing: remaining crate stubs, testkit/oracle crates |
+| M1 | COS: filters, crypt, parser, xref, writer | 120–200 | 78% | 25–45 | Done:<br>- filters and crypt: every standard-security revision R2–R6 (RC4, AES-128/256), SASLprep, permissions, creating encryption;<br>- cos: parse and repair (including invalid xref object-number ranges), decrypt on load, re-encrypt on save, incremental and full writing.<br>Corpus: open/edit/save passes on 958 files, and all 7 password-protected files open.<br>Full saves now pack objects into compressed object streams. Missing: ≥ 250 tests, own image codecs |
 | M2 | Model, render, text | 200–350 | 15% | 170–300 | hayro bootstrap renderer (vendored patches). Text extraction reaches word-F1 0.98 against pdftotext. Missing: model crate, fonts, DisplayList, renderer independent of hayro |
 | M3 | Viewer app (native + web) | 80–150 | 88% | 10–19 | Acrobat-style shell, find, select, panels, tiles, web build, UI control channel for agents (opt-in). Missing: 60 fps test on a 500-page document, snapshot tests of every panel Done since: fit visible, document title in the window; Linux middle-button scrolling; shared three-state theme preferences in the toolbar, View menu and control channel. |
 | M4 | Engine, history, save, organize | 100–180 | 95% | 9–17 | Done:<br>- command registry (menus, shortcuts and palette all use it);<br>- undo/redo; incremental, atomic and encrypted saves;<br>- autosave and crash recovery;<br>- organize, combine, extract, split and insert-from-file, with identical fonts and images stored once;<br>- CLI `edit/combine/extract/split`.<br>Done since: bookmark editing, page labels (Number pages), CLI `run`, Set Page Boxes, Crop tool, Duplicate pages, Ctrl+A / Cmd+A to select all pages in Organize. Missing: Replace pages, page transitions, recovery on the web |
@@ -126,6 +126,23 @@ M0 → M1 → M2 → M3 → M4 must happen in order. After M4, M5–M12 can run 
 ## Log
 
 Newest first. One line per session: the date, what moved, and the new overall percentage.
+
+- **2026-10-13 (RiRead storage compatibility):** A user-reported save timeout showed the parent
+  storage acknowledgement could stall when it mixed a record read and replacement write in one
+  IndexedDB transaction. It now uses the established short readonly lookup followed by an atomic
+  write transaction; the outer app replies only after that write completes. Save is now one
+  deliberate operation with no expiry timer: the reader waits for that acknowledgement, keeping
+  recovery safe. A regression test covers the flow. PdfCraft feature progress is unchanged (about
+  30–35%).
+
+- **2026-10-12 (RiRead storage compatibility):** Reader snapshots use a normal structured clone
+  instead of a transferred WebAssembly buffer, avoiding cross-realm ownership failures while the
+  library is small and local-only. PdfCraft feature progress is unchanged (about 30–35%).
+
+- **2026-10-12 (RiRead integration, M3/M4):** Library-owned web documents now keep their stable
+  outer-app id and Save uses a request/acknowledgement bridge. The reader marks a snapshot saved only
+  after the host confirms its IndexedDB transaction; failures, timeouts and edits made in flight stay
+  dirty, while Save As remains a download recovery path. Overall estimate unchanged (about 30–35%).
 
 - **2026-10-08 (M14, Windows Chinese Auto):** Auto now reads the Windows display language after locale environment overrides, selecting Simplified or Traditional Chinese through the existing locale mapping. Added Chinese region/script and Windows query regressions. Chinese font delivery remains incomplete. Localization remains partial; overall ≈ 30–35% (unchanged).
 
@@ -194,12 +211,10 @@ Newest first. One line per session: the date, what moved, and the new overall pe
   - UI control channel: agents can inspect the widget tree, click, type, press keys, run commands and take screenshots of the running app. Off unless the app is started with `--control`; loopback only, token-authenticated.
   - Combine and insert store identical fonts, images and other resources once. 40 copies of the showcase: 130 MB → 3.9 MB, 3× faster, pixel-identical.
   - Full saves use compressed object streams (showcase 3.4 → 2.8 MB; the 40× combine is now 2.3 MB). Fixed opening encrypted files whose catalog is compressed, and a crash on looped page trees.
-  - Fuzzing (`cargo xtask fuzz`, nightly in CI): about 150,000 mutated files tried. Seven crash and hang bugs found and fixed, each with a regression test: two in our code, five in the temporary renderer.
-  - Parity checklist: 826 Acrobat Pro features tracked in `parity/acrobat-features.toml`; `cargo xtask parity` checks every claim against code and tests. 11.8% shipped overall, 31.6% of P0.
+  - Upstream fuzzing tried about 150,000 mutated files. Seven crash and hang bugs were found and fixed, each with a regression test: two in first-party code, five in the temporary renderer.
   - Overall ≈ 9.5%.
 
 - **2026-09-30 (session 5, after a machine crash; no work lost):**
-  - Agent control: new `pdfcraft-automation` crate with 20 JSON-Schema tools, an opt-in MCP server (`pdfcraft-cli mcp`, stdio only, can be compiled out), and `pdfcraft-cli run`/`tools`.
   - Text on rotated pages now reads along its lines; the pdf.js oracle is unchanged at median 0.980.
   - Finding text in 520 pages: 17.9 s → 3.7 s (parallel), about 20 ms when repeated (cached).
   - CI: dependency licence audit (`deny.toml`, `xtask deny`) and a GitHub workflow for macOS, Windows, Linux and wasm.
@@ -224,4 +239,3 @@ Newest first. One line per session: the date, what moved, and the new overall pe
   - Robustness sweep (963 of 983 files open, 0 crashes), text layer, find and select, tiles, web build, polish.
   - Overall ≈ 3–4%.
 - **2026-09-30 (session 1):** planning complete; viewer vertical slice.
-

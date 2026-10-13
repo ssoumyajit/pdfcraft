@@ -54,7 +54,6 @@
   <a href="#open-protected-documents-and-respect-their-rules">Protect</a> ·
   <a href="#comments-forms-layers-and-attachments">Forms &amp; layers</a> ·
   <a href="#runs-everywhere-stays-yours">Everywhere</a> ·
-  <a href="#built-for-agents-too">Agents</a> ·
   <a href="#how-its-built">How it's built</a> ·
   <a href="#get-started">Get started</a> ·
   <a href="#whats-next">What's next</a> ·
@@ -192,12 +191,6 @@ Nothing quietly disappears along the way:
 
 Every page of a combined document renders pixel-identical to its source.
 
-```sh
-pdfcraft-cli combine report.pdf appendix.pdf --out combined.pdf
-pdfcraft-cli extract report.pdf --pages 1,3,5 --out highlights.pdf
-pdfcraft-cli split   report.pdf --every 10 --out-dir parts/
-```
-
 ---
 
 ## Open protected documents and respect their rules
@@ -259,55 +252,6 @@ Press <kbd>⌘K</kbd> to search every tool and command, or browse the **All tool
 - **Native on macOS, Windows, Linux and FreeBSD**, and **in the browser** through WebAssembly, from the same Rust codebase. Windows builds come for x64, x86 and ARM64 (Windows on ARM, no emulation); every ARM64 change is tested on ARM64 hardware in CI.
 - **Private by design.** Documents never leave your machine. There's no account, no telemetry and no cloud processing.
 - **Engine first.** Parsing, rendering and editing live in reusable library crates. The interface is one swappable layer on top.
-- **Scriptable.** The `pdfcraft-cli` tool (see [Built for agents, too](#built-for-agents-too)) covers inspecting, rendering, extracting text, editing, combining, extracting pages and splitting. Robustness sweeps run on the same engine as the app.
-
-```sh
-pdfcraft-cli info  form.pdf                                  # structure as JSON
-pdfcraft-cli text  paper.pdf --page 3                        # reading-order text
-pdfcraft-cli edit  in.pdf --rotate 1,2:90 --delete 5 --title "Q3" --out out.pdf
-```
-
----
-
-## Built for agents, too
-
-Every engine feature is reachable without the GUI, through one table of JSON-Schema-described tools: open, inspect, render pages to PNG, extract and find text, rotate, delete, move and insert pages, edit bookmarks and page labels, add, reply to, restyle and delete comments (highlight a phrase just by naming it), list and fill in form fields, protect with passwords, set metadata, undo and redo, save, combine, extract and split. Three front doors share it:
-
-- **`pdfcraft-cli run`**, for one-off calls and JSON scripts:
-
-  ```sh
-  pdfcraft-cli tools                                        # every tool and its JSON Schema
-  pdfcraft-cli run text_find doc=1 query=invoice            # key=value; values parse as JSON
-  pdfcraft-cli run --script review.json                     # e.g. comment_add {"type": "highlight", "find": "total due"}
-  pdfcraft-cli run --script steps.json --root ./work        # several steps in one session
-  ```
-
-  With `--root`, every file the script's steps read or write stays in that directory, including the PNG a step saves with `"out"` (the script itself is read from wherever you name it).
-
-- **An MCP server**, for AI agents such as Claude. **It is opt-in:** PdfCraft never starts it on its own, and it opens no network port. It runs only while an agent launches `pdfcraft-cli mcp`, talks over stdin/stdout, and stops when the agent disconnects. To enable it, add it to your agent's MCP configuration:
-
-  ```json
-  { "mcpServers": { "pdfcraft": { "command": "pdfcraft-cli", "args": ["mcp", "--root", "/path/to/your/pdfs"] } } }
-  ```
-
-  `--root` confines every file the agent can read or write to one directory. Builds that should not include the server at all can use `cargo build -p pdfcraft-cli --no-default-features`.
-
-- **The Rust API** (`pdfcraft_automation::Automation::call`), for embedding.
-
-Edits stay in memory, undoable, until `doc_save`. Saving to the same file appends an incremental update, so the original bytes are preserved, and the write is atomic. Unsaved changes are never discarded silently.
-
-### Driving the app itself
-
-Start the desktop app with `pdfcraft --control /tmp/pc.json` and an agent can see and operate the real interface: the widget tree with labels and positions (from the accessibility tree), clicks, typing, keys, commands, view options and screenshots. This is also off by default. It listens only on loopback, and every connection must present the random token written to that file, which only you can read.
-
-```sh
-pdfcraft-cli ui --control /tmp/pc.json inspect query=rotate      # find widgets
-pdfcraft-cli ui --control /tmp/pc.json click label="Organize pages"
-pdfcraft-cli ui --control /tmp/pc.json key key=K modifiers='["command"]'
-pdfcraft-cli ui --control /tmp/pc.json command id=comment.square   # pick a tool, then draw:
-pdfcraft-cli ui --control /tmp/pc.json drag from='[400,300]' to='[600,420]'
-pdfcraft-cli ui --control /tmp/pc.json screenshot --out window.png
-```
 
 ---
 
@@ -326,7 +270,6 @@ PdfCraft is a Cargo workspace of focused crates, layered so the core never depen
 | `pdfcraft-forms` | Interactive forms: the field model, filling with regenerated appearances, Clear form |
 | `pdfcraft-render` | Rendering, inspection and text extraction with reading order |
 | `pdfcraft-engine` | The façade every frontend uses: sessions, edits, undo, saving, the tool catalogue |
-| `pdfcraft-automation` | Agent control: the headless tool table, `pdfcraft-cli run`, and the opt-in MCP server |
 | `pdfcraft-ui-egui` | The desktop and web interface |
 
 **Quality gates.** Every change passes the same automated checks:

@@ -92,14 +92,12 @@ If you find an asset that breaks these rules, stop and remove it from the reposi
 - Observe Acrobat only with synthetic fixtures. Never capture personal data, account information or recent files.
 - Shared real-file test oracles (Photoshop-authored PSDs, etc.) live in [`storytold/photocraft-corpus`](https://github.com/storytold/photocraft-corpus), explained in [craftrules `standards/test-corpora.md`](https://github.com/storytold/craftrules/blob/main/standards/test-corpora.md) (internal). Never commit large binary fixtures to this repo; fetch them pinned by commit and sha256-verified, as PhotoCraft does with `cargo xtask corpus`.
 
-## 3. Agent control (automation and MCP)
+## 3. Current product scope
 
-- **Everything is reachable headlessly.** Every user-facing feature must be callable without the GUI: an engine API, then a tool in `crates/automation` (`pdfcraft-cli run` and MCP use the same table). A feature is not done until its tool exists and has an end-to-end test (`crates/automation/README.md`, "Adding a tool").
-- **The UI control channel is opt-in too.** It runs only when the app is launched with `--control <file>`. It binds to loopback, uses a fresh random token per launch, and writes it to an owner-only file. Never enable it by default, widen the bind address, or log the token.
-- **The MCP server is opt-in.** Never make the app, the CLI or an installer start it, register it with an agent, or listen on a port by default. It runs only when a user (or an agent the user configured) launches `pdfcraft-cli mcp`. Any future network transport must be off by default, bound to loopback and authenticated with a token.
-- **Safe by default.** Tools must never discard unsaved work silently, must write atomically, must honour `--root`, and must return errors an agent can act on (say what was wrong and what is allowed).
-- **Track parity honestly.** Every user-facing feature has an entry in `parity/acrobat-features.toml`. Mark it `shipped` only when it works end to end and the entry cites a passing test (`evidence`); `cargo xtask parity` (part of `xtask ci`) rejects claims whose commands, tools or tests don't exist.
-- **Use it to test.** Agents should drive the engine through `pdfcraft-cli run --script` or the MCP tools, and look at `page_render` output, to check their own changes. For UI changes, launch the app with `--control` and use `pdfcraft-cli ui` (`inspect`, `click`, `screenshot`) to check the real interface.
+- The current product is the PDF reader UI and its engine: open, render, search, annotate, undo and save.
+- There is deliberately no CLI, MCP server or headless automation crate. Do not restore those surfaces unless the user asks for them.
+- Keep edits safe by default: never discard unsaved work silently, write atomically where the platform permits it, and return actionable errors.
+- Exercise engine behavior through focused unit and integration tests. Exercise UI behavior through the `pdfcraft-ui-egui` test suite and screenshot example.
 
 ## 4. Never crash
 
@@ -111,7 +109,7 @@ PdfCraft opens files from strangers, and people trust it with their work. A malf
 - **Treat every input-derived number as hostile.** Use `get()` instead of `[i]` or `[a..b]`. Slice strings only at char boundaries. Use checked/saturating arithmetic for lengths, offsets and counts. Guard against division by zero and NaN/inf casts, and never cast a negative value to `usize`. Cap allocations sized by the file.
 - **Bound recursion.** Object graphs can be cyclic or deeply nested. Walk them with seen-sets or depth limits.
 - **Don't cascade.** Handle lock poisoning, and keep a panic in a worker thread from taking the app down. Engine entry points that run untrusted-document code keep their last-resort `catch_unwind` guard, and command execution and file import/export must sit behind one that turns an escaped panic into an error message and keeps the user's document. Keep `panic = "unwind"` (the default) so the guard works. It is a safety net, not a substitute for the rules above.
-- **Prove it.** Every crash fix comes with a small synthetic regression test that panicked before the fix. Turn fuzzer findings (`cargo xtask fuzz`) into such tests before fixing them.
+- **Prove it.** Every crash fix comes with a small synthetic regression test that panicked before the fix. Turn any fuzzer finding into such a test before fixing it.
 - **Enforced by clippy.** Root `clippy.toml` lets tests use `unwrap`/`expect`/`panic!`. A crate that is clean carries `#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]`; new crates start with it.
 
 ## 5. Everything else

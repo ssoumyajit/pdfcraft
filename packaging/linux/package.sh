@@ -40,7 +40,7 @@ BASENAME="pdfcraft-$VERSION-linux-$ARCH"
 echo "==> PdfCraft $VERSION for Linux $ARCH ($FORMATS)"
 
 if [ "$SKIP_BUILD" = 0 ]; then
-  (cd "$ROOT" && cargo build --release --locked -p pdfcraft -p pdfcraft-cli)
+  (cd "$ROOT" && cargo build --release --locked -p pdfcraft)
 fi
 BIN="$CARGO_TARGET_DIR/release"
 WORK="$CARGO_TARGET_DIR/linux-package"
@@ -49,8 +49,7 @@ rm -rf "$WORK"
 
 # ---- stage an FHS tree (shared by every format) -------------------------------------------------
 install -Dm755 "$BIN/pdfcraft" "$STAGE/usr/bin/pdfcraft"
-install -Dm755 "$BIN/pdfcraft-cli" "$STAGE/usr/bin/pdfcraft-cli"
-strip "$STAGE/usr/bin/pdfcraft" "$STAGE/usr/bin/pdfcraft-cli" 2>/dev/null || true
+strip "$STAGE/usr/bin/pdfcraft" 2>/dev/null || true
 install -Dm644 "$HERE/$APP_ID.desktop" "$STAGE/usr/share/applications/$APP_ID.desktop"
 install -Dm644 "$HERE/$APP_ID.mime.xml" "$STAGE/usr/share/mime/packages/$APP_ID.xml"
 mkdir -p "$STAGE/usr/share/metainfo"
@@ -115,6 +114,6 @@ if has appimage; then
   echo "wrote $OUT"
 fi
 
-"$STAGE/usr/bin/pdfcraft-cli" --version
+"$STAGE/usr/bin/pdfcraft" --version
 echo "==> done"
 ls -lh "$DIST"

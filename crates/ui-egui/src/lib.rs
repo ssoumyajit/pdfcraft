@@ -278,8 +278,54 @@ pub struct PageClip {
     pub pages: Vec<usize>,
 }
 
-/// Files delivered asynchronously: (name, bytes).
-pub type Inbox = std::sync::Arc<std::sync::Mutex<Vec<(String, Vec<u8>)>>>;
+/// A file delivered asynchronously to the UI.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IncomingFile {
+    pub name: String,
+    pub bytes: Vec<u8>,
+    /// The outer application's stable id, when this file belongs to its library.
+    pub document_id: Option<String>,
+}
+
+impl IncomingFile {
+    pub fn local(name: impl Into<String>, bytes: Vec<u8>) -> Self {
+        Self { name: name.into(), bytes, document_id: None }
+    }
+
+    pub fn stored(name: impl Into<String>, bytes: Vec<u8>, document_id: String) -> Self {
+        Self { name: name.into(), bytes, document_id: Some(document_id) }
+    }
+}
+
+/// Files delivered asynchronously by web file pickers and the RiRead parent bridge.
+pub type Inbox = std::sync::Arc<std::sync::Mutex<Vec<IncomingFile>>>;
+
+/// A PDF snapshot that the containing application must persist.
+#[derive(Clone)]
+pub struct ExternalSaveRequest {
+    pub request_id: String,
+    pub document_id: String,
+    pub name: String,
+    pub bytes: std::sync::Arc<Vec<u8>>,
+}
+
+/// The containing application's answer after its storage transaction finishes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExternalSaveResult {
+    pub request_id: String,
+    pub ok: bool,
+    pub error: Option<String>,
+}
+
+pub type ExternalSaveResults = std::sync::Arc<std::sync::Mutex<Vec<ExternalSaveResult>>>;
+pub type ExternalSaveSender = Box<dyn Fn(ExternalSaveRequest) -> Result<(), String>>;
+
+struct PendingExternalSave {
+    document: DocId,
+    generation: u64,
+    name: String,
+    bytes: std::sync::Arc<Vec<u8>>,
+}
 
 /// A request the operating system sends the running app, outside its window: on macOS, Finder
 /// double-clicks, Open With and drops on the Dock icon arrive as Apple events, not arguments.
@@ -298,6 +344,7 @@ pub struct PasswordPrompt {
     pub name: String,
     pub path: Option<String>,
     pub bytes: std::sync::Arc<Vec<u8>>,
+    pub document_id: Option<String>,
     pub input: String,
     pub error: Option<String>,
 }
@@ -346,6 +393,14 @@ pub struct PdfCraftApp {
     pub full_screen: bool,
     /// Files delivered asynchronously (web drag-and-drop, web file picker).
     pub inbox: Inbox,
+    /// Outer-library ids for documents opened through the RiRead bridge.
+    external_document_ids: std::collections::HashMap<DocId, String>,
+    /// Sends a PDF snapshot to the containing application's storage layer.
+    external_save_sender: Option<ExternalSaveSender>,
+    /// Save acknowledgements delivered asynchronously by the containing application.
+    external_save_results: ExternalSaveResults,
+    pending_external_saves: std::collections::HashMap<String, PendingExternalSave>,
+    next_external_save: u64,
     /// Requests from the operating system, polled every frame (macOS Apple events).
     pub os_events: Option<OsEventsFn>,
     /// A pending "save changes?" question (closing a dirty tab or quitting).
@@ -560,6 +615,11 @@ impl PdfCraftApp {
             password_prompt: None,
             full_screen: false,
             inbox: Default::default(),
+            external_document_ids: Default::default(),
+            external_save_sender: None,
+            external_save_results: Default::default(),
+            pending_external_saves: Default::default(),
+            next_external_save: 0,
             os_events: None,
             close_request: None,
             save_override: None,
@@ -692,26 +752,45 @@ impl PdfCraftApp {
 
     /// Open a document and make it the active tab. Encrypted files raise the password prompt.
     pub fn open_bytes(&mut self, name: &str, path: Option<String>, bytes: Vec<u8>) -> Result<(), String> {
+        self.open_bytes_from(name, path, bytes, None)
+    }
+
+    /// Open a document owned by a containing application's local library.
+    pub fn open_stored_bytes(&mut self, name: &str, bytes: Vec<u8>, document_id: String) -> Result<(), String> {
+        self.open_bytes_from(name, None, bytes, Some(document_id))
+    }
+
+    fn open_bytes_from(&mut self, name: &str, path: Option<String>, bytes: Vec<u8>, document_id: Option<String>) -> Result<(), String> {
         // Images and text files become new, unsaved PDFs (Create a PDF).
         if let Some(r) = self.open_converted(name, &bytes) {
             return r;
         }
-        self.try_open(name, path, std::sync::Arc::new(bytes), None)
+        self.try_open(name, path, std::sync::Arc::new(bytes), None, document_id)
     }
 
-    fn try_open(&mut self, name: &str, path: Option<String>, bytes: std::sync::Arc<Vec<u8>>, password: Option<&str>) -> Result<(), String> {
+    fn try_open(
+        &mut self,
+        name: &str,
+        path: Option<String>,
+        bytes: std::sync::Arc<Vec<u8>>,
+        password: Option<&str>,
+        document_id: Option<String>,
+    ) -> Result<(), String> {
         use pdfcraft_render::OpenError;
         let size = bytes.len();
         let id = match self.session.open(name, path.clone(), bytes.clone(), password) {
             Ok(id) => id,
             Err(e @ (OpenError::NeedsPassword | OpenError::WrongPassword)) => {
                 let error = matches!(e, OpenError::WrongPassword).then(|| "Incorrect password. Try again.".to_string());
-                self.password_prompt = Some(PasswordPrompt { name: name.to_string(), path, bytes, input: String::new(), error });
+                self.password_prompt = Some(PasswordPrompt { name: name.to_string(), path, bytes, document_id, input: String::new(), error });
                 return Ok(());
             }
             Err(e) => return Err(e.to_string()),
         };
         self.password_prompt = None;
+        if let Some(document_id) = document_id {
+            self.external_document_ids.insert(id, document_id);
+        }
         let doc = self.session.get(id).ok_or("the document could not be opened")?;
         let pages = doc.info.pages.len();
         // Acrobat opens straight to the Comments panel when a document has comments.
@@ -774,7 +853,7 @@ impl PdfCraftApp {
             if let Ok(bytes) = f.bytes_async().await
                 && let Ok(mut q) = inbox.lock()
             {
-                q.push((name, bytes));
+                q.push(IncomingFile::local(name, bytes));
                 ctx.request_repaint();
             }
         });
@@ -816,7 +895,7 @@ impl PdfCraftApp {
     pub fn submit_password(&mut self, password: Option<String>) {
         let Some(p) = self.password_prompt.take() else { return };
         let Some(pw) = password else { return };
-        match self.try_open(&p.name, p.path, p.bytes, Some(&pw)) {
+        match self.try_open(&p.name, p.path, p.bytes, Some(&pw), p.document_id) {
             Err(e) => self.notify_fmt("Couldn't open {name}: {e}", &[("name", &p.name), ("e", &e.to_string())]),
             // A recovered encrypted document is open once the prompt is gone.
             Ok(()) if self.password_prompt.is_none() => {
@@ -861,7 +940,7 @@ impl PdfCraftApp {
                 {
                     let bytes = h.read().await;
                     if let Ok(mut q) = inbox.lock() {
-                        q.push((h.file_name(), bytes));
+                        q.push(IncomingFile::local(h.file_name(), bytes));
                     }
                 }
             });
@@ -873,6 +952,8 @@ impl PdfCraftApp {
             return;
         }
         let id = self.views.remove(index).id;
+        self.external_document_ids.remove(&id);
+        self.pending_external_saves.retain(|_, pending| pending.document != id);
         self.forget_recovery(id);
         self.session.close(id);
         self.active = match self.active {
@@ -1343,12 +1424,17 @@ impl eframe::App for PdfCraftApp {
         for f in dropped {
             self.open_dropped(f, ctx);
         }
-        let arrived: Vec<(String, Vec<u8>)> = self.inbox.lock().map(|mut q| std::mem::take(&mut *q)).unwrap_or_default();
-        for (name, bytes) in arrived {
-            if let Err(e) = self.open_bytes(&name, None, bytes) {
-                self.notify_fmt("Couldn't open {name}: {e}", &[("name", &name), ("e", &e.to_string())]);
+        let arrived: Vec<IncomingFile> = self.inbox.lock().map(|mut q| std::mem::take(&mut *q)).unwrap_or_default();
+        for file in arrived {
+            let result = match file.document_id {
+                Some(document_id) => self.open_stored_bytes(&file.name, file.bytes, document_id),
+                None => self.open_bytes(&file.name, None, file.bytes),
+            };
+            if let Err(e) = result {
+                self.notify_fmt("Couldn't open {name}: {e}", &[("name", &file.name), ("e", &e.to_string())]);
             }
         }
+        self.process_external_save_results();
         let os_events = self.os_events.as_mut().map(|poll| poll()).unwrap_or_default();
         for e in os_events {
             match e {

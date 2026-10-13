@@ -3480,32 +3480,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pdfcraft-automation"
-version = "0.2.1"
-dependencies = [
- "base64 0.22.1",
- "image",
- "pdfcraft-engine",
- "pdfcraft-organize",
- "pdfcraft-render",
- "pdfcraft-xfa",
- "png 0.18.1",
- "serde_json",
-]
-
-[[package]]
-name = "pdfcraft-cli"
-version = "0.2.1"
-dependencies = [
- "base64 0.22.1",
- "pdfcraft-automation",
- "pdfcraft-cos",
- "pdfcraft-engine",
- "pdfcraft-render",
- "serde_json",
-]
-
-[[package]]
 name = "pdfcraft-compare"
 version = "0.2.1"
 

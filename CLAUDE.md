@@ -36,11 +36,8 @@ PdfCraft is a clean-room, open-source, Rust-native PDF application targeting Ado
 
 ## Running and looking at the app
 - `cargo run -p pdfcraft -- <file.pdf>` opens the desktop app.
-- `cargo run -p pdfcraft-cli -- run --script steps.json --root DIR` drives the engine headlessly through the automation tools (`pdfcraft-cli tools` lists them). Use it, together with `page_render`, to check engine changes. `pdfcraft-cli mcp` is the opt-in MCP server (AGENTS.md §3).
-- `cargo xtask fuzz --time 300` mutation-fuzzes open/render/edit/save in child processes. Findings land in `fuzz-out/findings/` (git-ignored; never commit corpus-derived files). Turn every real finding into a small synthetic regression test before fixing it.
-- `cargo xtask parity [--partial]` reports Acrobat-parity progress from `parity/acrobat-features.toml`. Update the entry when a feature ships.
 - `cargo xtask demo-pdf` builds `dist/demo/pdfcraft-showcase.pdf` (needs Chrome) for visual checks.
-- For UI work, **look at the result**. Either launch `pdfcraft --control FILE doc.pdf` and use `pdfcraft-cli ui --control FILE screenshot --out x.png` (plus `inspect`, `click`, `key`, `type`, `command`, `set`), or take a headless shot with `cargo run -p pdfcraft-ui-egui --example shot`. Compare against `plan/acrobat/02-ui-ux.md`. Control-channel tests use kittest (`crates/ui-egui/tests/control.rs`).
+- For UI work, **look at the result**. Take a headless shot with `cargo run -p pdfcraft-ui-egui --example shot`, or exercise the interface with its kittest suite. Compare against `plan/acrobat/02-ui-ux.md` when that local plan is available.
 - Parallel agents: use a separate `CARGO_TARGET_DIR` per agent and separate git worktrees.
 
 ## Current bootstrap debt (tracked in STATUS.md)

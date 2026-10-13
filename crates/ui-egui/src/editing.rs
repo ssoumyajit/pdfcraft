@@ -3,7 +3,7 @@
 
 use pdfcraft_engine::Edit;
 
-use crate::PdfCraftApp;
+use crate::{ExternalSaveRequest, ExternalSaveResults, ExternalSaveSender, PdfCraftApp, PendingExternalSave};
 
 /// What the user was doing when we asked whether to save.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -173,6 +173,13 @@ impl PdfCraftApp {
                 return false;
             }
         };
+        if target == SaveTarget::InPlace
+            && self.save_override.is_none()
+            && let Some(document_id) = self.external_document_ids.get(&id).cloned()
+            && self.external_save_sender.is_some()
+        {
+            return self.request_external_save(id, document_id, name, bytes);
+        }
         let destination = match (target, path, &self.save_override) {
             (_, _, Some(p)) => Some(p.clone()),
             (SaveTarget::InPlace, Some(p), _) => Some(p),
@@ -220,6 +227,79 @@ impl PdfCraftApp {
         }
     }
 
+    /// Connect Save to a containing application's asynchronous storage bridge.
+    pub fn set_external_save_sender(&mut self, sender: ExternalSaveSender) {
+        self.external_save_sender = Some(sender);
+    }
+
+    /// Queue shared with the bridge's message listener. Results are applied during the next frame.
+    pub fn external_save_results(&self) -> ExternalSaveResults {
+        self.external_save_results.clone()
+    }
+
+    fn request_external_save(&mut self, document: pdfcraft_engine::DocId, document_id: String, name: String, bytes: std::sync::Arc<Vec<u8>>) -> bool {
+        if self.pending_external_saves.values().any(|pending| pending.document == document) {
+            self.notify_fmt("{name} is already being saved", &[("name", &name)]);
+            return false;
+        }
+        let Some(generation) = self.session.get(document).map(|doc| doc.edit_generation()) else { return false };
+        self.next_external_save = self.next_external_save.saturating_add(1);
+        let request_id = format!("save-{}", self.next_external_save);
+        let request = ExternalSaveRequest { request_id: request_id.clone(), document_id, name: name.clone(), bytes: bytes.clone() };
+        let sent = self.external_save_sender.as_ref().map(|sender| sender(request));
+        match sent {
+            Some(Ok(())) => {
+                self.pending_external_saves.insert(request_id, PendingExternalSave { document, generation, name: name.clone(), bytes });
+                self.notify_fmt("Saving {name} to RiRead…", &[("name", &name)]);
+            }
+            Some(Err(e)) => {
+                self.notify_fmt("Couldn't send {name} to RiRead: {e}. Use Save As to download a copy.", &[("name", &name), ("e", &e)]);
+            }
+            None => {}
+        }
+        // The write is not complete until the parent acknowledges its IndexedDB transaction.
+        false
+    }
+
+    pub(crate) fn process_external_save_results(&mut self) {
+        let results = self.external_save_results.lock().map(|mut queue| std::mem::take(&mut *queue)).unwrap_or_default();
+        for result in results {
+            let Some(pending) = self.pending_external_saves.remove(&result.request_id) else { continue };
+            if !result.ok {
+                let error = result.error.unwrap_or_else(|| "the storage transaction failed".to_string());
+                self.notify_fmt(
+                    "Couldn't save {name} to RiRead: {e}. Your edits are still open; use Save As to download a copy.",
+                    &[("name", &pending.name), ("e", &error)],
+                );
+                continue;
+            }
+            let generation = self.session.get(pending.document).map(|doc| doc.edit_generation());
+            if generation != Some(pending.generation) {
+                self.notify_fmt("Saved {name} to RiRead, but newer edits are still unsaved", &[("name", &pending.name)]);
+                continue;
+            }
+            match self.session.mark_saved(pending.document, pending.bytes, None) {
+                Ok(()) => {
+                    self.forget_recovery(pending.document);
+                    if let Some(index) = self.views.iter().position(|view| view.id == pending.document)
+                        && let Some(doc) = self.session.get(pending.document)
+                    {
+                        self.views[index].document_changed(&doc.info);
+                    }
+                    self.notify_fmt("Saved {name} to RiRead", &[("name", &pending.name)]);
+                }
+                Err(e) => self.notify_fmt(
+                    "RiRead stored {name}, but the reader couldn't reopen the saved bytes: {e}. Reopen it from the library before editing further.",
+                    &[("name", &pending.name), ("e", &e.to_string())],
+                ),
+            }
+        }
+    }
+
+    fn has_pending_external_save(&self, document: pdfcraft_engine::DocId) -> bool {
+        self.pending_external_saves.values().any(|pending| pending.document == document)
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     fn ask_save_path(&self, name: &str) -> Option<String> {
         let name = if name.to_ascii_lowercase().ends_with(".pdf") { name.to_string() } else { format!("{name}.pdf") };
@@ -233,7 +313,12 @@ impl PdfCraftApp {
 
     /// Close a tab, asking first if it has unsaved changes.
     pub fn request_close_tab(&mut self, index: usize) {
-        let dirty = self.views.get(index).and_then(|v| self.session.get(v.id)).is_some_and(|d| d.dirty);
+        let Some(document) = self.views.get(index).map(|view| view.id) else { return };
+        if self.has_pending_external_save(document) {
+            self.notify_tr("Wait for the document to finish saving before closing it");
+            return;
+        }
+        let dirty = self.session.get(document).is_some_and(|d| d.dirty);
         if dirty {
             self.close_request = Some(CloseRequest::Tab(index));
         } else {
@@ -243,6 +328,10 @@ impl PdfCraftApp {
 
     /// File ▸ Close all: clean documents close at once; each one with unsaved changes asks.
     pub fn close_all(&mut self) {
+        if !self.pending_external_saves.is_empty() {
+            self.notify_tr("Wait for documents to finish saving before closing them");
+            return;
+        }
         for i in (0..self.views.len()).rev() {
             if !self.session.get(self.views[i].id).is_some_and(|d| d.dirty) {
                 self.close_tab(i);
@@ -316,6 +405,11 @@ impl PdfCraftApp {
     /// Intercept window close while documents have unsaved changes.
     pub(crate) fn guard_quit(&mut self, ctx: &egui::Context) {
         if !ctx.input(|i| i.viewport().close_requested()) {
+            return;
+        }
+        if !self.pending_external_saves.is_empty() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.notify_tr("Wait for documents to finish saving before quitting");
             return;
         }
         if !self.allow_quit && self.first_dirty().is_some() {
